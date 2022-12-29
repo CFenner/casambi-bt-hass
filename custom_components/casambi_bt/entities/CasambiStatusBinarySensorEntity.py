@@ -8,27 +8,25 @@ from homeassistant.helpers.entity import EntityCategory
 from CasambiBt import Unit
 
 from .CasambiBinarySensorEntity import CasambiBinarySensorEntity
-from .. import DOMAIN, CasambiApi
+from .. import CasambiApi
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class CasambiStatusBinarySensorEntity(CasambiBinarySensorEntity):
+    """Defines a Casambi Status Binary Sensor Entity."""
+
     def __init__(self, unit: Unit, api: CasambiApi):
-        _LOGGER.debug("Casambi status binary sensor - init - start")
-
         CasambiBinarySensorEntity.__init__(self, unit, api, "Status", BinarySensorDeviceClass.CONNECTIVITY)
-
-        _LOGGER.debug("Casambi status binary sensor - init - end")
 
     @property
     def entity_category(self):
-        """Getter for entity category"""
+        """Getter for entity category."""
         return EntityCategory.DIAGNOSTIC
 
     @property
     def available(self) -> bool:
-        """Connectivity entity is always available."""
+        """Getter for entity availability, status/connectivity entity is always available."""
         return True
 
     @callback
@@ -48,5 +46,5 @@ class CasambiStatusBinarySensorEntity(CasambiBinarySensorEntity):
 
     @property
     def state(self):
-        """Getter for state"""
+        """Getter for state."""
         return STATE_ON if super().available and self._unit.online else STATE_OFF

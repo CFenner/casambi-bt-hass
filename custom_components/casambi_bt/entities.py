@@ -32,7 +32,7 @@ class CasambiEntity(Entity):
         """Return the unique ID for this entity."""
         name = f"{self._api.casa.networkId}"
         if hasattr(self, "_unit"):
-            name += "f_{self._unit.uuid}"
+            name += f"_{self._unit.uuid}"
         if hasattr(self, "_attr_name"):
             name += f"_{self._attr_name}"
         return name.lower()

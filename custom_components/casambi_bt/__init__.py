@@ -23,28 +23,19 @@ _LOGGER: Final = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Casambi Bluetooth from a config entry."""
-    conf = entry.data
-    casa_api = await async_casmbi_api_setup(
-        hass, conf[CONF_ADDRESS], conf[CONF_PASSWORD]
+    _LOGGER.debug("Setting up Casambi Bluetooth component")
+    api = await async_casmbi_api_setup(
+        hass, entry.data[CONF_ADDRESS], entry.data[CONF_PASSWORD]
     )
 
-    if not casa_api:
-        return False
+    if not api:
+        raise ConfigEntryNotReady
+    api.casa.registerUnitChangedHandler(api._unit_changed_handler)
 
-    casa_api.casa.registerUnitChangedHandler(casa_api._unit_changed_handler)
+    hass.data[DOMAIN] = {}
+    hass.data[DOMAIN][entry.entry_id] = api
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = casa_api
-    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
-
-    # Regsiter the network device here to avoid code duplication.
-    device_reg = device_registry.async_get(hass)
-    device_reg.async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(IDENTIFIER_NETWORK_ID, casa_api.casa.networkId)},
-        name=casa_api.casa.networkName,
-        manufacturer="Casambi",
-        connections={(device_registry.CONNECTION_BLUETOOTH, casa_api.address)}
-    )
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
 

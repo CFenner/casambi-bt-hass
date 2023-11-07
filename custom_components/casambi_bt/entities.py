@@ -31,7 +31,7 @@ class CasambiEntity(Entity):
     def unique_id(self) -> str:
         """Return the unique ID for this entity."""
         name = f"{self._api.casa.networkId}"
-        if hasattr(self, "_unit"):
+        if self._unit is not None:
             name += f"_{self._unit.uuid}"
         if hasattr(self, "_attr_name"):
             name += f"_{self._attr_name}"
@@ -64,5 +64,5 @@ class CasambiEntity(Entity):
         return self._api.available
 
     @callback
-    def change_callback(self, unit: CasambiUnit) -> None:
+    def change_callback(self, _unit: CasambiUnit) -> None:
         self.schedule_update_ha_state(False)

@@ -11,14 +11,13 @@ from CasambiBt.errors import AuthenticationError, BluetoothError, NetworkNotFoun
 
 import homeassistant.components.bluetooth as bluetooth
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_ADDRESS, CONF_PASSWORD, Platform
+from homeassistant.const import CONF_ADDRESS, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import device_registry
 
-from .const import DOMAIN, IDENTIFIER_NETWORK_ID
+from .const import DOMAIN, IDENTIFIER_NETWORK_ID, PLATFORMS
 
-PLATFORMS = [Platform.LIGHT, Platform.SCENE, Platform.BINARY_SENSOR]
 _LOGGER: Final = logging.getLogger(__name__)
 
 

@@ -18,13 +18,9 @@ from homeassistant.components.light import (
     ATTR_RGB_COLOR,
     ATTR_RGBW_COLOR,
     ATTR_COLOR_TEMP_KELVIN,
-    COLOR_MODE_BRIGHTNESS,
     COLOR_MODE_ONOFF,
-    COLOR_MODE_RGB,
-    COLOR_MODE_RGBW,
     COLOR_MODE_COLOR_TEMP,
     COLOR_MODE_UNKNOWN,
-    ColorMode,
     LightEntity,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -33,6 +29,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN, CasambiApi
+from .utils import capabilities_helper, mode_helper
 
 CASA_LIGHT_CTRL_TYPES: Final[list[UnitControlType]] = [
     UnitControlType.DIMMER,
@@ -72,7 +69,7 @@ class CasambiLight(LightEntity, metaclass=ABCMeta):
         self._attr_supported_features = 0
         self._attr_should_poll = False
 
-        self._attr_color_mode = self._mode_helper(self.supported_color_modes)
+        self._attr_color_mode = mode_helper(self.supported_color_modes)
 
     @property
     def available(self) -> bool:
@@ -82,51 +79,13 @@ class CasambiLight(LightEntity, metaclass=ABCMeta):
     def change_callback(self, unit: Unit) -> None:
         self.schedule_update_ha_state(False)
 
-    def _capabilities_helper(self, unit: Unit) -> set[str]:
-        supported: set[str] = set()
-        unit_modes = [uc.type for uc in unit.unitType.controls]
-
-        if UnitControlType.RGB in unit_modes and UnitControlType.WHITE in unit_modes:
-            supported.add(COLOR_MODE_RGBW)
-        elif UnitControlType.RGB in unit_modes:
-            supported.add(COLOR_MODE_RGB)
-        if UnitControlType.DIMMER in unit_modes:
-            supported.add(COLOR_MODE_BRIGHTNESS)
-            supported.add(COLOR_MODE_ONOFF)
-        elif UnitControlType.ONOFF in unit_modes:
-            supported.add(COLOR_MODE_ONOFF)
-        if UnitControlType.TEMPERATURE in unit_modes:
-            supported.add(COLOR_MODE_COLOR_TEMP)
-
-        if len(supported) == 0:
-            supported.add(COLOR_MODE_UNKNOWN)
-
-        return supported
-
-    def _mode_helper(self, modes: set[ColorMode] | set[str] | None) -> str:
-        if not modes:
-            return COLOR_MODE_UNKNOWN
-
-        if COLOR_MODE_RGBW in modes:
-            return COLOR_MODE_RGBW
-        elif COLOR_MODE_RGB in modes:
-            return COLOR_MODE_RGB
-        elif COLOR_MODE_COLOR_TEMP in modes:
-            return COLOR_MODE_COLOR_TEMP
-        elif COLOR_MODE_BRIGHTNESS in modes:
-            return COLOR_MODE_BRIGHTNESS
-        elif COLOR_MODE_ONOFF in modes:
-            return COLOR_MODE_ONOFF
-        else:
-            return COLOR_MODE_UNKNOWN
-
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._api.casa.setLevel(self._obj, 0)
 
 
 class CasambiLightUnit(CasambiLight):
     def __init__(self, api: CasambiApi, unit: Unit) -> None:
-        self._attr_supported_color_modes = self._capabilities_helper(unit)
+        self._attr_supported_color_modes = capabilities_helper(unit)
         self._attr_name = None
         self._attr_has_entity_name = True
 
@@ -247,7 +206,7 @@ class CasambiLightGroup(CasambiLight):
         # Find union of supported color modes.
         supported_modes = set()
         for unit in group.units:
-            supported_modes = supported_modes.union(self._capabilities_helper(unit))
+            supported_modes = supported_modes.union(capabilities_helper(unit))
 
         self._unit_map = dict(zip([u.deviceId for u in group.units], group.units))
 

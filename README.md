@@ -1,6 +1,6 @@
-# Homeassistant integration for Casambi using Bluetooth
+# Home Assistant integration for Casambi using Bluetooth
 
-This is a homeassistant integration for Casambi networks using Bluetooth. Since this is an unofficial implementation of the rather complex undocumented protocol used by the Casambi app there may be issues in networks configured differently to the one used to test this integration.
+This is a Home Assistant integration for Casambi networks using Bluetooth. Since this is an unofficial implementation of the rather complex undocumented protocol used by the Casambi app there may be issues in networks configured differently to the one used to test this integration.
 Please see the information below on how to report such issues.
 
 A more mature HA integration for Casambi networks can be found under [https://github.com/hellqvio86/home_assistant_casambi](https://github.com/hellqvio86/home_assistant_casambi). This integration requires a network gateway to always connect the network to the Casambi cloud.
@@ -40,11 +40,13 @@ Supported control types:
 - White
 - Rgb
 - OnOff
+- Temperature (Only for units since there are some open problems for groups.)
 
 Not supported yet:
 - Switches
 - Sensors
 - Additional control types (e.g. temperature, vertical, ...)
+- Networks with classic firmware
 
 ## Reporting issues
 
@@ -55,7 +57,7 @@ logger:
   default: info
   logs:
     CasambiBt: debug
-    custom_components.casambi: debug
+    custom_components.casambi_bt: debug
 ```
 
 The log might contain sensitive information about the network (including your network password and the email address used for the network) so sanitize it first or mail it to the address on my github profile referencing your issue.

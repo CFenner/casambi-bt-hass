@@ -7,7 +7,7 @@ from copy import copy
 import logging
 from typing import Any, Final, cast
 
-from CasambiBt import Group, Unit, UnitControlType, UnitState
+from CasambiBt import Group, Unit, UnitControlType, UnitState, _operation
 
 from .const import (
     CONF_IMPORT_GROUPS,
@@ -17,10 +17,12 @@ from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_RGB_COLOR,
     ATTR_RGBW_COLOR,
+    ATTR_COLOR_TEMP_KELVIN,
     COLOR_MODE_BRIGHTNESS,
     COLOR_MODE_ONOFF,
     COLOR_MODE_RGB,
     COLOR_MODE_RGBW,
+    COLOR_MODE_COLOR_TEMP,
     COLOR_MODE_UNKNOWN,
     ColorMode,
     LightEntity,
@@ -36,6 +38,8 @@ CASA_LIGHT_CTRL_TYPES: Final[list[UnitControlType]] = [
     UnitControlType.DIMMER,
     UnitControlType.RGB,
     UnitControlType.WHITE,
+    UnitControlType.ONOFF,
+    UnitControlType.TEMPERATURE,
 ]
 
 _LOGGER = logging.getLogger(__name__)
@@ -82,8 +86,6 @@ class CasambiLight(LightEntity, metaclass=ABCMeta):
         supported: set[str] = set()
         unit_modes = [uc.type for uc in unit.unitType.controls]
 
-        # No support for color temperature (due to lack of test hardware)
-
         if UnitControlType.RGB in unit_modes and UnitControlType.WHITE in unit_modes:
             supported.add(COLOR_MODE_RGBW)
         elif UnitControlType.RGB in unit_modes:
@@ -93,6 +95,8 @@ class CasambiLight(LightEntity, metaclass=ABCMeta):
             supported.add(COLOR_MODE_ONOFF)
         elif UnitControlType.ONOFF in unit_modes:
             supported.add(COLOR_MODE_ONOFF)
+        if UnitControlType.TEMPERATURE in unit_modes:
+            supported.add(COLOR_MODE_COLOR_TEMP)
 
         if len(supported) == 0:
             supported.add(COLOR_MODE_UNKNOWN)
@@ -103,12 +107,12 @@ class CasambiLight(LightEntity, metaclass=ABCMeta):
         if not modes:
             return COLOR_MODE_UNKNOWN
 
-        # No support for color temperature (due to lack of test hardware)
-
         if COLOR_MODE_RGBW in modes:
             return COLOR_MODE_RGBW
         elif COLOR_MODE_RGB in modes:
             return COLOR_MODE_RGB
+        elif COLOR_MODE_COLOR_TEMP in modes:
+            return COLOR_MODE_COLOR_TEMP
         elif COLOR_MODE_BRIGHTNESS in modes:
             return COLOR_MODE_BRIGHTNESS
         elif COLOR_MODE_ONOFF in modes:
@@ -125,6 +129,12 @@ class CasambiLightUnit(CasambiLight):
         self._attr_supported_color_modes = self._capabilities_helper(unit)
         self._attr_name = None
         self._attr_has_entity_name = True
+
+        temp_control = unit.unitType.get_control(UnitControlType.TEMPERATURE)
+        if temp_control is not None:
+            self._attr_min_color_temp_kelvin = temp_control.min
+            self._attr_max_color_temp_kelvin = temp_control.max
+
         super().__init__(api, unit)
 
     @property
@@ -166,6 +176,11 @@ class CasambiLightUnit(CasambiLight):
         return (*unit.state.rgb, unit.state.white)  # type: ignore[return-value]
 
     @property
+    def color_temp_kelvin(self) -> int | None:
+        unit = cast(Unit, self._obj)
+        return unit.state.temperature
+
+    @property
     def available(self) -> bool:
         unit = cast(Unit, self._obj)
         return super().available and unit.online
@@ -177,7 +192,9 @@ class CasambiLightUnit(CasambiLight):
             self._obj = unit
         else:
             own_unit = cast(Unit, self._obj)
-            own_unit.online = unit.online
+            # This update doesn't have a state.
+            # This can happen if the unit isn't online so only look at that part.
+            own_unit._online = unit.online
         return super().change_callback(unit)
 
     async def async_added_to_hass(self) -> None:
@@ -194,20 +211,36 @@ class CasambiLightUnit(CasambiLight):
         if not state:
             state = UnitState()
 
-        # TODO: Properly handle multiple attributes.
-
+        # According to docs (https://developers.home-assistant.io/docs/core/entity/light#turn-on-light-device)
+        # we only ever get a single color attribute but there may be other non-color ones.
+        set_state = False
         if ATTR_BRIGHTNESS in kwargs:
             state.dimmer = kwargs[ATTR_BRIGHTNESS]
-        elif ATTR_RGBW_COLOR in kwargs:
+            set_state = True
+        if ATTR_RGBW_COLOR in kwargs:
             state.rgb = kwargs[ATTR_RGBW_COLOR][:3]
             state.white = kwargs[ATTR_RGBW_COLOR][3]
-        elif ATTR_RGB_COLOR in kwargs:
+            set_state = True
+        if ATTR_RGB_COLOR in kwargs:
             state.rgb = kwargs[ATTR_RGB_COLOR]
+            set_state = True
+        if ATTR_COLOR_TEMP_KELVIN in kwargs:
+            state.temperature = kwargs[ATTR_COLOR_TEMP_KELVIN]
+            set_state = True
+
+        if set_state:
+            await self._api.casa.setUnitState(self._obj, state)
         else:
-            return await self._api.casa.turnOn(self._obj)
+            await self._api.casa.turnOn(self._obj)
 
-        await self._api.casa.setUnitState(self._obj, state)
-
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        # HACK: Try to get lights only supporting ONOFF to turn off.
+        # SetLevel doesn't seem to work for unknown reasons.
+        if self.color_mode == COLOR_MODE_ONOFF:
+            unit = cast(Unit, self._obj)
+            await self._api.casa._send(unit, bytes(unit.unitType.stateLength), _operation.OpCode.SetState)
+        else:
+            await super().async_turn_off(**kwargs)
 
 class CasambiLightGroup(CasambiLight):
     def __init__(self, api: CasambiApi, group: Group) -> None:
@@ -215,6 +248,16 @@ class CasambiLightGroup(CasambiLight):
         supported_modes = set()
         for unit in group.units:
             supported_modes = supported_modes.union(self._capabilities_helper(unit))
+
+        self._unit_map = dict(zip([u.deviceId for u in group.units], group.units))
+
+        # Color temperature for groups isn't supported yet.
+        # Oen problems:
+        #  - How do we determin min and max temperature? Is it the union or intersection of the intervals?
+        #  - How does the SetTemperature opcode work (for casambi-bt)?
+        #    We can't really scale the temperature since we don't have a min or max.
+        if COLOR_MODE_COLOR_TEMP in supported_modes:
+            supported_modes.remove(COLOR_MODE_COLOR_TEMP)
 
         if len(supported_modes) == 0:
             supported_modes.add(COLOR_MODE_UNKNOWN)
@@ -235,29 +278,48 @@ class CasambiLightGroup(CasambiLight):
 
     @property
     def is_on(self) -> bool:
-        group = cast(Group, self._obj)
-        return any([u.is_on for u in group.units])
+        return any([u.is_on for u in self._unit_map.values()])
 
     @property
     def brightness(self) -> int | None:
-        group = cast(Group, self._obj)
-        for unit in group.units:
+        for unit in self._unit_map.values():
             if unit.unitType.get_control(UnitControlType.DIMMER):
                 return unit.state.dimmer
 
     @property
     def rgb_color(self) -> tuple[int, int, int] | None:
-        group = cast(Group, self._obj)
-        for unit in group.units:
+        for unit in self._unit_map.values():
             if unit.unitType.get_control(UnitControlType.RGB):
                 return unit.state.rgb
 
     @property
     def rgbw_color(self) -> tuple[int, int, int, int] | None:
-        group = cast(Group, self._obj)
-        for unit in group.units:
+        for unit in self._unit_map.values():
             if unit.unitType.get_control(UnitControlType.DIMMER):
                 return (*unit.state.rgb, unit.state.white)  # type: ignore[return-value]
+
+    @property
+    def available(self) -> bool:
+        return super().available and any(
+            [unit.online for unit in self._unit_map.values()]
+        )
+
+    @callback
+    def change_callback(self, unit: Unit) -> None:
+        group = cast(Group, self._obj)
+        _LOGGER.debug(
+            "Handling state change for unit %i in group %i",
+            unit.deviceId,
+            group.groudId,
+        )
+        if unit.state:
+            self._unit_map[unit.deviceId] = unit
+        else:
+            own_unit = self._unit_map[unit.deviceId]
+            # This update doesn't have a state.
+            # This can happen if the unit isn't online so only look at that part.
+            own_unit._online = unit.online
+        return super().change_callback(unit)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         was_set = False
@@ -275,7 +337,7 @@ class CasambiLightGroup(CasambiLight):
 
         if not was_set:
             await self._api.casa.turnOn(self._obj)
-        else:
+        elif ATTR_BRIGHTNESS not in kwargs:
             # Sync brightness for group so that everything turns on.
             # This might be a bit confusing because the rest isn't synced.
             await self._api.casa.setLevel(self._obj, self.brightness)

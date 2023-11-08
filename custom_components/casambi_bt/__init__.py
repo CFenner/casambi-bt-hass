@@ -2,18 +2,21 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable
 import logging
+from collections.abc import Iterable
 from typing import Callable, Final
 
-from CasambiBt import Casambi, Group, Unit, UnitControlType, Scene
-from CasambiBt.errors import AuthenticationError, BluetoothError, NetworkNotFoundError
-
 import homeassistant.components.bluetooth as bluetooth
+from CasambiBt import Casambi, Group, Scene, Unit, UnitControlType
+from CasambiBt.errors import AuthenticationError, BluetoothError, NetworkNotFoundError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryError,
+    ConfigEntryNotReady,
+)
 from homeassistant.helpers import device_registry
 
 from .const import DOMAIN, IDENTIFIER_NETWORK_ID, PLATFORMS
@@ -68,17 +71,17 @@ async def async_casmbi_api_setup(
             raise NetworkNotFoundError
         await casa.connect(device, password)
     except BluetoothError as err:
-        _LOGGER.warn("Failed to use bluetooth")
-        raise ConfigEntryNotReady from err
+        raise ConfigEntryNotReady("Failed to use bluetooth") from err
     except AuthenticationError as err:
-        _LOGGER.debug("Failed to authenticate to network %s", address)
-        raise ConfigEntryAuthFailed from err
+        raise ConfigEntryAuthFailed(
+            f"Failed to authenticate to network {address}"
+        ) from err
     except NetworkNotFoundError as err:
-        _LOGGER.error("Network with address %s wasn't found", address)
-        raise ConfigEntryNotReady from err
-    except Exception:  # pylint: disable=broad-except
-        _LOGGER.error("Unexpected error creating network %s", address, exc_info=True)
-        return None
+        raise ConfigEntryNotReady(
+            f"Network with address {address} wasn't found"
+        ) from err
+    except Exception as err:  # pylint: disable=broad-except
+        raise ConfigEntryError(f"Unexpected error creating network {address}") from err
 
     api = CasambiApi(casa, hass, address, password)
     return api
@@ -156,7 +159,12 @@ class CasambiApi:
             )
             if not device:
                 return
-            await self.casa.disconnect()
+            try:
+                await self.casa.disconnect()
+            # HACK: This is a workaround for https://github.com/lkempf/casambi-bt-hass/issues/26
+            # We don't actually need to disconnect except to clean up so this should be ok to ignore.
+            except AttributeError:
+                _LOGGER.debug("Unexpected failure during disconnect.")
             await self.casa.connect(device, self.password)
 
             if not self._cancel_bluetooth_callback:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Final
+from typing import Any
 
 from CasambiBt import Scene as CasambiScene
 
@@ -11,7 +11,6 @@ from . import CasambiApi
 
 from .const import (
     DOMAIN,
-    IDENTIFIER_NETWORK_ID,
 )
 from homeassistant.components.light import ATTR_BRIGHTNESS
 from homeassistant.components.scene import Scene as SceneEntity
@@ -22,7 +21,6 @@ from homeassistant.helpers.entity import EntityDescription
 
 from .entities import CasambiEntity
 
-_LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,

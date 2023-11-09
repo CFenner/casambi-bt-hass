@@ -18,9 +18,8 @@ class CasambiEntity(Entity):
 
     entity_description: EntityDescription
     _attr_has_entity_name = True
-    _attr_should_poll = False
 
-    def __init__(self, api: CasambiApi, object: CasambiUnit | CasambiScene | None, description: EntityDescription):
+    def __init__(self, api: CasambiApi, object: CasambiUnit | CasambiGroup | CasambiScene | None, description: EntityDescription):
         """Initialize Casambi Entity."""
         self.entity_description = description
         self._api = api
@@ -55,7 +54,7 @@ class CasambiEntity(Entity):
                 identifiers={(DOMAIN, self._obj.uuid)},
                 via_device=(DOMAIN, self._api.casa.networkId),
             )
-        # return device info for network, scene, group
+        # return device info for network, scenes, groups
         return DeviceInfo(
             name=self._api.casa.networkName,
             manufacturer="Casambi",
@@ -67,6 +66,17 @@ class CasambiEntity(Entity):
     def available(self) -> bool:
         """Return True if entity is available."""
         return self._api.available
+    
+    @property
+    def should_poll(self) -> bool:
+        """Return True if entity has to be polled for state."""
+        # Unit & Group based entities are updated by the bluetooth callback.
+        if self._obj is not None and (
+            isinstance(self._obj, CasambiUnit) or 
+            isinstance(self._obj, CasambiGroup)
+        ):
+            return False
+        return True
 
     @callback
     def change_callback(self, _unit: CasambiUnit) -> None:
